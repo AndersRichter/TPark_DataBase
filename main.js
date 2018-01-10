@@ -4,10 +4,9 @@ const bodyparser = require('koa-bodyparser');
 const logger = require('koa-logger');
 const router = require('koa-router')();
 
-const pgp = require('pg-promise');
 const bluebird = require('bluebird');
+const pgp = require('pg-promise')({ promiseLib: bluebird, capSQL: true });
 
-let myPGP = pgp({ promiseLib: bluebird });
 const info = {
 	host: 'localhost',
 	port: 5432,
@@ -15,7 +14,7 @@ const info = {
 	user: 'andrey',
 	password: 'andrey96'
 };
-const database = myPGP(info);
+const database = pgp(info);
 const app = new koa();
 
 
@@ -294,43 +293,58 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 		ctx.body = [];
 	} else {
 		let body = [];
-		body[0] = {
-			"author": ctx.request.body[0].author,
-			"message": ctx.request.body[0].message,
-		};
-		body[0].created = new Date();
+		const time = new Date();
+		const length = ctx.request.body.length;
+
+		for (let i = 0; i < length; i++) {
+			body[i] = {
+				"author": ctx.request.body[i].author,
+				"message": ctx.request.body[i].message,
+			};
+			body[i].created = time.toUTCString();
+			if (ctx.request.body[i].parent)
+				body[i].parent = ctx.request.body[i].parent;
+			else
+				body[i].parent = 0;
+		}
 
 		if (isNaN(ctx.params.slugOrId)) {
-			const idAndForumAndThread = await database.one(
-				`INSERT INTO posts (forum, thread, author, message, created)
-				SELECT forum, id, 
-				'${ctx.request.body[0].author}', 
-				'${ctx.request.body[0].message}',  
-				'${body[0].created.toUTCString()}'
-				FROM threads WHERE slug = '${ctx.params.slugOrId}' 
-				RETURNING id, forum, thread`
+			let forumAndId = await database.one(
+				`SELECT forum, id FROM threads WHERE slug = '${ctx.params.slugOrId}'`
 			);
 
-			body[0].id = idAndForumAndThread.id;
-			body[0].forum = idAndForumAndThread.forum;
-			body[0].thread = idAndForumAndThread.thread;
+			for (let i = 0; i < length; i++) {
+				body[i].thread = forumAndId.id;
+				body[i].forum = forumAndId.forum;
+			}
 		} else {
-			body[0].thread = +ctx.params.slugOrId;
-
-			const idAndForum = await database.one(
-				`INSERT INTO posts (forum, author, message, thread, created)
-				SELECT forum, 
-				'${ctx.request.body[0].author}', 
-				'${ctx.request.body[0].message}', 
-				${body[0].thread}, 
-				'${body[0].created.toUTCString()}'
-				FROM threads WHERE id = ${ctx.params.slugOrId} 
-				RETURNING id, forum`
+			let existForum = await database.one(
+				`(SELECT forum FROM threads WHERE id = ${ctx.params.slugOrId})`
 			);
 
-			body[0].id = idAndForum.id;
-			body[0].forum = idAndForum.forum;
+			for (let i = 0; i < length; i++) {
+				body[i].thread = +ctx.params.slugOrId;
+				body[i].forum = existForum.forum;
+			}
 		}
+		const query = pgp.helpers.insert(
+			body,
+			['author', 'message', 'created', 'parent', 'thread', 'forum'],
+			'posts'
+		) + ' RETURNING id';
+
+		const id = await database.any(query);
+
+		for (let i = 0; i < length; i++) {
+			await database.none(
+				`UPDATE posts SET 
+					path = (SELECT path FROM posts WHERE id = ${body[i].parent}) || (${id[i].id}) WHERE id = ${id[i].id};`
+			);
+			body[i].id = id[i].id;
+			body[i].created = time;
+			if (!ctx.request.body[i].parent) delete body[i].parent;
+		}
+
 		ctx.body = body;
 		ctx.status = 201;
 	}
