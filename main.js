@@ -293,15 +293,14 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 		ctx.body = [];
 	} else {
 		let body = [];
-		const time = new Date();
 		const length = ctx.request.body.length;
+		let time = new Date();
 
 		for (let i = 0; i < length; i++) {
 			body[i] = {
 				"author": ctx.request.body[i].author,
 				"message": ctx.request.body[i].message,
 			};
-			body[i].created = time.toUTCString();
 			if (ctx.request.body[i].parent)
 				body[i].parent = ctx.request.body[i].parent;
 			else
@@ -316,6 +315,7 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 			for (let i = 0; i < length; i++) {
 				body[i].thread = forumAndId.id;
 				body[i].forum = forumAndId.forum;
+				body[i].created = time;
 			}
 		} else {
 			let existForum = await database.one(
@@ -325,6 +325,7 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 			for (let i = 0; i < length; i++) {
 				body[i].thread = +ctx.params.slugOrId;
 				body[i].forum = existForum.forum;
+				body[i].created = time;
 			}
 		}
 		const query = pgp.helpers.insert(
@@ -441,6 +442,84 @@ router.get('/api/thread/:slugOrId/details', async (ctx) => {
 		ctx.status = 404;
 	}
 });
+
+
+router.get('/api/thread/:slugOrId/posts', async (ctx) => {
+	let existThread = 0;
+	if (isNaN(ctx.params.slugOrId)) {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE slug = '${ctx.params.slugOrId}'`
+		);
+	} else {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE id = '${ctx.params.slugOrId}'`
+		);
+	}
+
+	if (existThread) {
+		let limit = "ALL";
+		let desc = "ASC";
+		let since = "1990-03-20T23:07:05.956Z";
+		let sort = false;
+		let sign = ">=";
+
+		if (ctx.query.limit)
+			limit = ctx.query.limit;
+		if (ctx.query.desc === 'true')
+			desc = "DESC";
+		if (ctx.query.since)
+			since = ctx.query.since;
+		if (ctx.query.desc === 'true' && ctx.query.since)
+			sign = "<=";
+		if (ctx.query.sort)
+			sort = ctx.query.sort;
+
+		let body = [];
+		if (sort === 'flat') {
+			body = await database.any(
+				`SELECT author, created, forum, id, message, thread, parent FROM posts
+				WHERE forum = '${existThread.forum}' AND
+				created ${sign} '${since}'
+				ORDER BY created ${desc}, id
+				LIMIT ${limit}`
+			);
+		}
+		if (sort === 'tree') {
+			body = await database.any(
+				`SELECT author, created, forum, id, message, thread, parent FROM posts
+				WHERE forum = '${existThread.forum}' AND
+				created ${sign} '${since}'
+				ORDER BY path ${desc}
+				LIMIT ${limit}`
+			);
+		}
+		if (sort === 'parent_tree') {
+			body = await database.any(
+				`SELECT author, created, forum, id, message, thread, parent FROM posts
+				WHERE forum = '${existThread.forum}' AND
+				created ${sign} '${since}'
+				ORDER BY path ${desc}
+				LIMIT ${limit}`
+			);
+		}
+
+		body.forEach(el => {
+			if (el.parent === 0)
+				delete el.parent;
+		});
+
+		ctx.body = body;
+		ctx.status = 200;
+	} else {
+		ctx.body = {
+			message: "Can't find thread"
+		};
+		ctx.status = 404;
+	}
+});
+
 
 app
 	.use(bodyparser())
