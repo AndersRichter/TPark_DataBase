@@ -461,9 +461,9 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 	if (existThread) {
 		let limit = "ALL";
 		let desc = "ASC";
-		let since = "1990-03-20T23:07:05.956Z";
+		let since = 0;
 		let sort = false;
-		let sign = ">=";
+		let sign = ">";
 
 		if (ctx.query.limit)
 			limit = ctx.query.limit;
@@ -472,36 +472,57 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 		if (ctx.query.since)
 			since = ctx.query.since;
 		if (ctx.query.desc === 'true' && ctx.query.since)
-			sign = "<=";
+			sign = "<";
 		if (ctx.query.sort)
 			sort = ctx.query.sort;
 
 		let body = [];
-		if (sort === 'flat') {
+		if (!sort) {
 			body = await database.any(
 				`SELECT author, created, forum, id, message, thread, parent FROM posts
-				WHERE forum = '${existThread.forum}' AND
-				created ${sign} '${since}'
-				ORDER BY created ${desc}, id
+				WHERE thread = ${existThread.id} AND
+				id ${sign} ${since}
+				ORDER BY created ${desc}, id ${desc}
 				LIMIT ${limit}`
 			);
-		}
-		if (sort === 'tree') {
+		} else if (sort === 'flat') {
 			body = await database.any(
 				`SELECT author, created, forum, id, message, thread, parent FROM posts
-				WHERE forum = '${existThread.forum}' AND
-				created ${sign} '${since}'
+				WHERE thread = ${existThread.id} AND
+				id ${sign} ${since}
+				ORDER BY created ${desc}, id ${desc}
+				LIMIT ${limit}`
+			);
+		} else if (sort === 'tree') {
+			body = await database.any(
+				`SELECT author, created, forum, id, message, thread, parent FROM posts
+				WHERE thread = ${existThread.id} AND
+				id ${sign} ${since}
 				ORDER BY path ${desc}
 				LIMIT ${limit}`
 			);
-		}
-		if (sort === 'parent_tree') {
+		} else if (sort === 'parent_tree') {
+			const arrayOfParent = await database.any(
+				`SELECT path FROM posts 
+				WHERE thread = ${existThread.id} AND parent = 0 
+				ORDER BY path ${desc} LIMIT ${limit}`
+			);
+
+			let stringOfArray = `{`;
+			arrayOfParent.forEach(el => {
+				stringOfArray += `${el.path[0]}, `
+			});
+			stringOfArray = stringOfArray.slice(0, -2);
+			stringOfArray += `}`;
+
 			body = await database.any(
 				`SELECT author, created, forum, id, message, thread, parent FROM posts
-				WHERE forum = '${existThread.forum}' AND
-				created ${sign} '${since}'
-				ORDER BY path ${desc}
-				LIMIT ${limit}`
+				WHERE thread = ${existThread.id} AND
+				id ${sign} ${since} AND (
+					(parent = 0 AND path[1] = ANY ('${stringOfArray}')) OR 
+					parent = ANY ('${stringOfArray}')
+				) 
+				ORDER BY path ${desc}`
 			);
 		}
 
