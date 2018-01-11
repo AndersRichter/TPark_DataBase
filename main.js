@@ -117,7 +117,7 @@ router.post('/api/user/:nickname/profile', async (ctx) => {
 
 router.post('/api/forum/create', async (ctx) => {
 	const existForum = await database.oneOrNone(
-		`SELECT slug, title, username AS user FROM forums 
+		`SELECT slug, title, author AS user FROM forums 
 		WHERE slug = '${ctx.request.body.slug}'`
 	);
 
@@ -132,7 +132,7 @@ router.post('/api/forum/create', async (ctx) => {
 
 		if (existUser) {
 			await database.none(
-				`INSERT INTO forums (username, slug, title)
+				`INSERT INTO forums (author, slug, title)
 				VALUES (
 				'${existUser.nickname}',
 				'${ctx.request.body.slug}',
@@ -158,7 +158,7 @@ router.post('/api/forum/create', async (ctx) => {
 
 router.get('/api/forum/:slug/details', async (ctx) => {
 	const existForum = await database.oneOrNone(
-		`SELECT slug, title, username AS user FROM forums 
+		`SELECT slug, title, author AS user FROM forums 
 		WHERE slug = '${ctx.params.slug}'`
 	);
 
@@ -371,7 +371,7 @@ router.post('/api/thread/:slugOrId/vote', async (ctx) => {
 
 		const oldVoice = await database.oneOrNone(
 			`SELECT voice FROM votes 
-			WHERE nickname = '${ctx.request.body.nickname}' AND
+			WHERE author = '${ctx.request.body.nickname}' AND
 			thread = ${existThread.id}`
 		);
 
@@ -380,7 +380,7 @@ router.post('/api/thread/:slugOrId/vote', async (ctx) => {
 				await database.task(async t => {
 					await t.none(
 						`UPDATE votes SET voice = ${voice} 
-						WHERE nickname = '${ctx.request.body.nickname}' AND
+						WHERE author = '${ctx.request.body.nickname}' AND
 						thread = ${existThread.id}`
 					);
 					await t.none(
@@ -393,7 +393,7 @@ router.post('/api/thread/:slugOrId/vote', async (ctx) => {
 		} else {
 			await database.task(async t => {
 				await t.none(
-					`INSERT INTO votes (voice, nickname, thread) 
+					`INSERT INTO votes (voice, author, thread) 
 					VALUES (${voice}, 
 					'${ctx.request.body.nickname}', 
 					${existThread.id}
@@ -494,19 +494,44 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 				LIMIT ${limit}`
 			);
 		} else if (sort === 'tree') {
-			body = await database.any(
-				`SELECT author, created, forum, id, message, thread, parent FROM posts
-				WHERE thread = ${existThread.id} AND
-				id ${sign} ${since}
-				ORDER BY path ${desc}
-				LIMIT ${limit}`
-			);
+			if (since !== 0) {
+				body = await database.any(
+					`SELECT author, created, forum, id, message, thread, parent FROM posts
+					WHERE thread = ${existThread.id} AND path ${sign} (
+	                    SELECT path FROM posts WHERE id = ${since} LIMIT 1
+					) ORDER BY path ${desc} LIMIT ${limit}`
+				);
+			} else {
+				body = await database.any(
+					`SELECT author, created, forum, id, message, thread, parent FROM posts
+					WHERE thread = ${existThread.id} 
+					ORDER BY path ${desc} LIMIT ${limit}`
+				);
+			}
 		} else if (sort === 'parent_tree') {
-			const arrayOfParent = await database.any(
-				`SELECT path FROM posts 
-				WHERE thread = ${existThread.id} AND parent = 0 
-				ORDER BY path ${desc} LIMIT ${limit}`
-			);
+			let arrayOfParent = 0;
+			if (since !== 0) {
+				arrayOfParent = await database.any(
+					`SELECT path FROM posts 
+					WHERE thread = ${existThread.id} AND 
+					parent = 0 AND path ${sign} (
+	                    SELECT path FROM posts WHERE id = ${since} LIMIT 1
+					)
+					ORDER BY path ${desc} LIMIT ${limit}`
+				);
+			} else {
+				arrayOfParent = await database.any(
+					`SELECT path FROM posts 
+					WHERE thread = ${existThread.id} AND parent = 0 
+					ORDER BY path ${desc} LIMIT ${limit}`
+				);
+			}
+
+			if (arrayOfParent.length === 0) {
+				ctx.body = [];
+				ctx.status = 200;
+				return;
+			}
 
 			let stringOfArray = `{`;
 			arrayOfParent.forEach(el => {
@@ -517,11 +542,8 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 
 			body = await database.any(
 				`SELECT author, created, forum, id, message, thread, parent FROM posts
-				WHERE thread = ${existThread.id} AND
-				id ${sign} ${since} AND (
-					(parent = 0 AND path[1] = ANY ('${stringOfArray}')) OR 
-					parent = ANY ('${stringOfArray}')
-				) 
+				WHERE thread = ${existThread.id} AND 
+				path[1] = ANY ('${stringOfArray}')
 				ORDER BY path ${desc}`
 			);
 		}
@@ -532,6 +554,44 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 		});
 
 		ctx.body = body;
+		ctx.status = 200;
+	} else {
+		ctx.body = {
+			message: "Can't find thread"
+		};
+		ctx.status = 404;
+	}
+});
+
+
+router.post('/api/thread/:slugOrId/details', async (ctx) => {
+	let existThread = 0;
+	if (isNaN(ctx.params.slugOrId)) {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE slug = '${ctx.params.slugOrId}'`
+		);
+	} else {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE id = '${ctx.params.slugOrId}'`
+		);
+	}
+
+	if (existThread) {
+		if (ctx.request.body.message)
+			existThread.message = ctx.request.body.message;
+		if (ctx.request.body.title)
+			existThread.title = ctx.request.body.title;
+
+		await database.none(
+			`UPDATE threads SET 
+			message = '${existThread.message}', 
+			title = '${existThread.title}' 
+			WHERE id = ${existThread.id}`
+		);
+
+		ctx.body = existThread;
 		ctx.status = 200;
 	} else {
 		ctx.body = {
