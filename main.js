@@ -45,6 +45,7 @@ router.post('/api/user/:nickname/create', async (ctx) => {
 			"about": ctx.request.body.about,
 			"email": ctx.request.body.email
 		};
+
 		ctx.status = 201;
 	}
 });
@@ -158,11 +159,13 @@ router.post('/api/forum/create', async (ctx) => {
 
 router.get('/api/forum/:slug/details', async (ctx) => {
 	const existForum = await database.oneOrNone(
-		`SELECT slug, title, author AS user FROM forums 
+		`SELECT slug, title, author AS user, posts, threads FROM forums 
 		WHERE slug = '${ctx.params.slug}'`
 	);
 
 	if (existForum) {
+		if (existForum.posts === 0) delete existForum.posts;
+		if (existForum.threads === 0) delete existForum.threads;
 		ctx.body = existForum;
 		ctx.status = 200;
 	} else {
@@ -237,6 +240,11 @@ router.post('/api/forum/:slug/create', async (ctx) => {
 			if (!ctx.request.body.slug) delete body.slug;
 			if (!ctx.request.body.created) delete body.created;
 
+			await database.none(
+				`UPDATE forums SET
+				threads = threads + 1 WHERE slug = '${existForum.slug}'`
+			);
+
 			ctx.body = body;
 			ctx.status = 201;
 		} else {
@@ -288,71 +296,119 @@ router.get('/api/forum/:slug/threads', async (ctx) => {
 
 
 router.post('/api/thread/:slugOrId/create', async (ctx) => {
+	let existThread = 0;
+	if (isNaN(ctx.params.slugOrId)) {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE slug = '${ctx.params.slugOrId}'`
+		);
+	} else {
+		existThread = await database.oneOrNone(
+			`SELECT * FROM threads 
+			WHERE id = '${ctx.params.slugOrId}'`
+		);
+	}
+
+	if (!existThread) {
+		ctx.body = {
+			message: "Can't find post thread"
+		};
+		ctx.status = 404;
+		return;
+	}
+
 	if (ctx.request.body.length === 0) {
 		ctx.status = 201;
 		ctx.body = [];
-	} else {
-		let body = [];
-		const length = ctx.request.body.length;
-		let time = new Date();
-
-		for (let i = 0; i < length; i++) {
-			body[i] = {
-				"author": ctx.request.body[i].author,
-				"message": ctx.request.body[i].message,
-			};
-			if (ctx.request.body[i].parent)
-				body[i].parent = ctx.request.body[i].parent;
-			else
-				body[i].parent = 0;
-		}
-
-		if (isNaN(ctx.params.slugOrId)) {
-			let forumAndId = await database.one(
-				`SELECT forum, id FROM threads WHERE slug = '${ctx.params.slugOrId}'`
-			);
-
-			for (let i = 0; i < length; i++) {
-				body[i].thread = forumAndId.id;
-				body[i].forum = forumAndId.forum;
-				body[i].created = time;
-			}
-		} else {
-			let existForum = await database.one(
-				`(SELECT forum FROM threads WHERE id = ${ctx.params.slugOrId})`
-			);
-
-			for (let i = 0; i < length; i++) {
-				body[i].thread = +ctx.params.slugOrId;
-				body[i].forum = existForum.forum;
-				body[i].created = time;
-			}
-		}
-		const query = pgp.helpers.insert(
-			body,
-			['author', 'message', 'created', 'parent', 'thread', 'forum'],
-			'posts'
-		) + ' RETURNING id';
-
-		const id = await database.any(query);
-
-		for (let i = 0; i < length; i++) {
-			await database.none(
-				`UPDATE posts SET 
-					path = (SELECT path FROM posts WHERE id = ${body[i].parent}) || (${id[i].id}) WHERE id = ${id[i].id};`
-			);
-			body[i].id = id[i].id;
-			body[i].created = time;
-			if (!ctx.request.body[i].parent) delete body[i].parent;
-		}
-
-		ctx.body = body;
-		ctx.status = 201;
+		return;
 	}
+
+	let body = [];
+	const length = ctx.request.body.length;
+	let time = new Date();
+
+	for (let i = 0; i < length; i++) {
+		body[i] = {
+			"author": ctx.request.body[i].author,
+			"message": ctx.request.body[i].message,
+			"thread": existThread.id,
+			"forum": existThread.forum,
+			"created": time
+		};
+		if (ctx.request.body[i].parent) {
+			let parent = await database.oneOrNone(
+				`SELECT id FROM posts 
+				WHERE thread = ${existThread.id} AND 
+				id = ${ctx.request.body[i].parent}`
+			);
+			if (!parent) {
+				ctx.body = {
+					message: "Parent post was created in another thread"
+				};
+				ctx.status = 409;
+				return;
+			}
+
+			body[i].parent = ctx.request.body[i].parent;
+		}
+		else
+			body[i].parent = 0;
+
+		let author = await database.oneOrNone(
+			`SELECT id FROM users 
+			WHERE nickname = '${body[i].author}'`
+		);
+		if (!author) {
+			ctx.body = {
+				message: "Can't find post author"
+			};
+			ctx.status = 404;
+			return;
+		}
+	}
+
+	const query = pgp.helpers.insert(
+		body,
+		['author', 'message', 'created', 'parent', 'thread', 'forum'],
+		'posts'
+	) + ' RETURNING id';
+
+	const id = await database.any(query);
+
+	for (let i = 0; i < length; i++) {
+		await database.none(
+			`UPDATE posts SET 
+			path = (SELECT path FROM posts WHERE id = ${body[i].parent}) || (${id[i].id}) WHERE id = ${id[i].id}`
+		);
+		body[i].id = id[i].id;
+		body[i].created = time;
+		if (!ctx.request.body[i].parent) delete body[i].parent;
+	}
+
+	await database.none(
+		`UPDATE forums SET 
+		posts = posts + ${length} 
+		WHERE slug = '${existThread.forum}'`
+	);
+
+	ctx.body = body;
+	ctx.status = 201;
 });
 
 
 router.post('/api/thread/:slugOrId/vote', async (ctx) => {
+	let author = await database.oneOrNone(
+		`SELECT id FROM users 
+		WHERE nickname = '${ctx.request.body.nickname}'`
+	);
+	if (!author) {
+		ctx.body = {
+			message: "Can't find voice author"
+		};
+		ctx.status = 404;
+		return;
+	}
+
 	let existThread = 0;
 	if (isNaN(ctx.params.slugOrId)) {
 		existThread = await database.oneOrNone(
@@ -599,6 +655,194 @@ router.post('/api/thread/:slugOrId/details', async (ctx) => {
 		};
 		ctx.status = 404;
 	}
+});
+
+
+router.get('/api/forum/:slug/users', async (ctx) => {
+	const existForum = await database.oneOrNone(
+		`SELECT * FROM forums 
+		WHERE slug = '${ctx.params.slug}'`
+	);
+
+	if (existForum) {
+		let limit = "ALL";
+		let desc = "ASC";
+		let since = 0;
+		let sign = ">";
+		let users = [];
+
+		if (ctx.query.limit)
+			limit = ctx.query.limit;
+		if (ctx.query.desc === 'true')
+			desc = "DESC";
+		if (ctx.query.since)
+			since = ctx.query.since;
+		if (ctx.query.desc === 'true' && ctx.query.since)
+			sign = "<";
+
+		if (since !== 0) {
+			users = await database.any(
+				`SELECT p.author AS username FROM
+	                forums f INNER JOIN posts p ON f.slug = p.forum
+				WHERE f.slug = '${ctx.params.slug}' AND p.author ${sign} '${since}' 
+				UNION
+				SELECT t.author AS username FROM
+	                forums f INNER JOIN threads t ON f.slug = t.forum
+				WHERE f.slug = '${ctx.params.slug}' AND t.author ${sign} '${since}' 
+				GROUP BY username
+				ORDER BY username ${desc} LIMIT ${limit}`
+			);
+		} else {
+			users = await database.any(
+				`SELECT p.author AS username FROM
+	                forums f INNER JOIN posts p ON f.slug = p.forum
+				WHERE f.slug = '${ctx.params.slug}' 
+				UNION
+				SELECT t.author AS username FROM
+	                forums f INNER JOIN threads t ON f.slug = t.forum
+				WHERE f.slug = '${ctx.params.slug}' 
+				GROUP BY username
+				ORDER BY username ${desc} LIMIT ${limit}`
+			);
+		}
+
+		if (users.length === 0) {
+			ctx.body = [];
+			ctx.status = 200;
+			return;
+		}
+
+		let stringOfArray = `{`;
+		users.forEach(el => {
+			stringOfArray += `${el.username}, `
+		});
+		stringOfArray = stringOfArray.slice(0, -2);
+		stringOfArray += `}`;
+
+		ctx.body = await database.any(
+			`SELECT about, email, fullname, nickname FROM users 
+			WHERE nickname = ANY ('${stringOfArray}') 
+			ORDER BY nickname ${desc}`
+		);
+		ctx.status = 200;
+	} else {
+		ctx.body = {
+			message: "Can't find forum"
+		};
+		ctx.status = 404;
+	}
+});
+
+
+router.get('/api/post/:id/details', async (ctx) => {
+	let existPost = await database.oneOrNone(
+		`SELECT * FROM posts 
+		WHERE id = ${ctx.params.id}`
+	);
+
+	if (existPost) {
+		ctx.body = {};
+
+		delete existPost.path;
+		if (existPost.parent === 0) delete existPost.parent;
+		if (existPost.isedited !== false)
+			existPost.isEdited = existPost.isedited;
+		delete existPost.isedited;
+
+		if (ctx.query.related) {
+			let relArray = ctx.query.related.split(',');
+
+			if (relArray.indexOf('user') !== -1) {
+				ctx.body.author = await database.one(
+					`SELECT about, email, fullname, nickname FROM users 
+					WHERE nickname = '${existPost.author}'`
+				);
+			}
+			if (relArray.indexOf('thread') !== -1) {
+				ctx.body.thread = await database.one(
+					`SELECT author, created, forum, id, message, slug, title FROM threads 
+					WHERE id = '${existPost.thread}'`
+				);
+			}
+			if (relArray.indexOf('forum') !== -1) {
+				ctx.body.forum = await database.one(
+					`SELECT posts, slug, threads, title, author AS user FROM forums 
+					WHERE slug = '${existPost.forum}'`
+				);
+			}
+		}
+
+		ctx.body.post = existPost;
+		ctx.status = 200;
+	} else {
+		ctx.body = {
+			message: "Can't find post"
+		};
+		ctx.status = 404;
+	}
+});
+
+
+router.post('/api/post/:id/details', async (ctx) => {
+	let existPost = await database.oneOrNone(
+		`SELECT * FROM posts 
+		WHERE id = ${ctx.params.id}`
+	);
+
+	if (existPost) {
+
+		if (ctx.request.body.message) {
+			if (ctx.request.body.message !== existPost.message) {
+				existPost.message = ctx.request.body.message;
+				existPost.isedited = true;
+			}
+		}
+
+		await database.none(
+			`UPDATE posts SET 
+			message = '${existPost.message}', 
+			isedited = ${existPost.isedited} 
+			WHERE id = ${existPost.id}`
+		);
+
+		delete existPost.path;
+		if (existPost.isedited !== false)
+			existPost.isEdited = existPost.isedited;
+		delete existPost.isedited;
+		if (existPost.parent === 0) delete existPost.parent;
+
+		ctx.body = existPost;
+		ctx.status = 200;
+	} else {
+		ctx.body = {
+			message: "Can't find post"
+		};
+		ctx.status = 404;
+	}
+});
+
+
+router.get('/api/service/status', async (ctx) => {
+	const forumsCount = await database.one(`SELECT COUNT(id) FROM forums`);
+	const postsCount = await database.one(`SELECT COUNT(id) FROM posts`);
+	const threadsCount = await database.one(`SELECT COUNT(id) FROM threads`);
+	const usersCount = await database.one(`SELECT COUNT(id) FROM users`);
+
+	ctx.body = {
+		"forum": +forumsCount.count,
+		"post": +postsCount.count,
+		"thread": +threadsCount.count,
+		"user": +usersCount.count
+	};
+	ctx.status = 200;
+});
+
+
+router.post('/api/service/clear', async (ctx) => {
+	await database.none(
+		`TRUNCATE TABLE users CASCADE`
+	);
+	ctx.status = 200;
 });
 
 
