@@ -9,6 +9,10 @@ RUN apt-get -y update
 ENV PGVER 9.5
 RUN apt-get install -y postgresql-$PGVER
 
+ENV WORK /opt/DataBase
+ADD ./ $WORK/
+WORKDIR $WORK
+
 # Run the rest of the commands as the ``postgres`` user created by the ``postgres-$PGVER`` package when it was ``apt-get installed``
 USER postgres
 
@@ -36,16 +40,15 @@ USER root
 #
 # Сборка проекта
 #
+RUN apt-get install libpq-dev -y
+RUN apt-get install build-essential -y
 
-# Установка Nodejs & npm
+# Install nodejs
+RUN curl -sL https://deb.nodesource.com/setup_9.x | bash -
 RUN apt-get install -y nodejs nodejs-legacy npm
 
-# Копируем исходный код в Docker-контейнер
-ENV APP /root/app
-ADD ./ $APP
-
 # Собираем и устанавливаем пакет
-WORKDIR $APP
+#RUN rm -rf node_modules
 RUN npm install
 
 # Объявлем порт сервера
@@ -54,4 +57,4 @@ EXPOSE 5000
 #
 # Запускаем PostgreSQL и сервер
 #
-CMD service postgresql start && node main.js
+CMD service postgresql start && npm start
