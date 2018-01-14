@@ -42,13 +42,14 @@ USER root
 #
 RUN apt-get install libpq-dev -y
 RUN apt-get install build-essential -y
+RUN apt-get install curl -y
 
 # Install nodejs
 RUN curl -sL https://deb.nodesource.com/setup_9.x | bash -
-RUN apt-get install -y nodejs nodejs-legacy npm
+RUN apt-get install -y nodejs
 
 # Собираем и устанавливаем пакет
-#RUN rm -rf node_modules
+RUN rm -rf node_modules
 RUN npm install
 
 # Объявлем порт сервера
