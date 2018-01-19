@@ -200,6 +200,18 @@ ALTER SEQUENCE users_id_seq OWNED BY users.id;
 
 
 --
+-- Name: users_in_forum; Type: TABLE; Schema: public; Owner: andrey
+--
+
+CREATE TABLE users_in_forum (
+    forum citext NOT NULL,
+    author citext NOT NULL
+);
+
+
+ALTER TABLE users_in_forum OWNER TO andrey;
+
+--
 -- Name: votes; Type: TABLE; Schema: public; Owner: andrey
 --
 
@@ -265,11 +277,26 @@ ALTER TABLE ONLY threads
 
 
 --
+-- Name: users_in_forum_forum_author_pk; Type: CONSTRAINT; Schema: public; Owner: andrey
+--
+
+ALTER TABLE ONLY users_in_forum
+    ADD CONSTRAINT users_in_forum_forum_author_pk PRIMARY KEY (forum, author);
+
+
+--
 -- Name: users_pkey; Type: CONSTRAINT; Schema: public; Owner: andrey
 --
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: author_thread; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX author_thread ON votes USING btree (author, thread);
 
 
 --
@@ -280,10 +307,24 @@ CREATE UNIQUE INDEX forums_slug_uindex ON forums USING btree (slug);
 
 
 --
--- Name: threads_slug_uindex; Type: INDEX; Schema: public; Owner: andrey
+-- Name: post_thread; Type: INDEX; Schema: public; Owner: andrey
 --
 
-CREATE UNIQUE INDEX threads_slug_uindex ON threads USING btree (slug);
+CREATE INDEX post_thread ON posts USING btree (thread);
+
+
+--
+-- Name: thread_forum_created; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX thread_forum_created ON threads USING btree (forum, created);
+
+
+--
+-- Name: thread_slug; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX thread_slug ON threads USING btree (slug);
 
 
 --
@@ -346,6 +387,22 @@ ALTER TABLE ONLY threads
 
 ALTER TABLE ONLY threads
     ADD CONSTRAINT threads_user_fkey FOREIGN KEY (author) REFERENCES users(nickname);
+
+
+--
+-- Name: users_in_forum_forum_fkey; Type: FK CONSTRAINT; Schema: public; Owner: andrey
+--
+
+ALTER TABLE ONLY users_in_forum
+    ADD CONSTRAINT users_in_forum_forum_fkey FOREIGN KEY (forum) REFERENCES forums(slug);
+
+
+--
+-- Name: users_in_forum_user_fkey; Type: FK CONSTRAINT; Schema: public; Owner: andrey
+--
+
+ALTER TABLE ONLY users_in_forum
+    ADD CONSTRAINT users_in_forum_user_fkey FOREIGN KEY (author) REFERENCES users(nickname);
 
 
 --
