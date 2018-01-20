@@ -17,6 +17,8 @@ const info = {
 const database = pgp(info);
 const app = new koa();
 
+let postsCount = 0;
+
 
 router.post('/api/user/:nickname/create', async (ctx) => {
 	await database.task(async t => {
@@ -399,6 +401,12 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 			posts = posts + ${length} 
 			WHERE slug = '${existThread.forum}'`
 		);
+
+		postsCount += length;
+		if (postsCount >= 1500000) {
+			await database.none(`CLUSTER posts USING post_path`);
+		}
+		console.log(postsCount);
 
 		ctx.body = body;
 		ctx.status = 201;

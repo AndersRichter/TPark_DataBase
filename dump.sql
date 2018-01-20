@@ -275,6 +275,8 @@ ALTER TABLE ONLY posts
 ALTER TABLE ONLY threads
     ADD CONSTRAINT threads_pkey PRIMARY KEY (id);
 
+ALTER TABLE threads CLUSTER ON threads_pkey;
+
 
 --
 -- Name: users_in_forum_forum_author_pk; Type: CONSTRAINT; Schema: public; Owner: andrey
@@ -304,6 +306,17 @@ CREATE INDEX author_thread ON votes USING btree (author, thread);
 --
 
 CREATE UNIQUE INDEX forums_slug_uindex ON forums USING btree (slug);
+
+ALTER TABLE forums CLUSTER ON forums_slug_uindex;
+
+
+--
+-- Name: post_path; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX post_path ON posts USING btree (path);
+
+ALTER TABLE posts CLUSTER ON post_path;
 
 
 --
@@ -339,6 +352,8 @@ CREATE UNIQUE INDEX users_email_uindex ON users USING btree (email);
 --
 
 CREATE UNIQUE INDEX users_nickname_uindex ON users USING btree (nickname);
+
+ALTER TABLE users CLUSTER ON users_nickname_uindex;
 
 
 --
