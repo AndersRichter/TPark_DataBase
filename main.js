@@ -23,7 +23,7 @@ let postsCount = 0;
 router.post('/api/user/:nickname/create', async (ctx) => {
 	await database.task(async t => {
 		const existUser = await t.manyOrNone(
-			`SELECT * FROM users 
+			`SELECT nickname, email, fullname, about FROM users 
 			WHERE email = '${ctx.request.body.email}' 
 			OR nickname = '${ctx.params.nickname}'`
 		);
@@ -58,7 +58,7 @@ router.post('/api/user/:nickname/create', async (ctx) => {
 
 router.get('/api/user/:nickname/profile', async (ctx) => {
 	const existUser = await database.oneOrNone(
-		`SELECT * FROM users 
+		`SELECT nickname, fullname, about, email FROM users 
 		WHERE nickname = '${ctx.params.nickname}'`
 	);
 
@@ -80,24 +80,34 @@ router.post('/api/user/:nickname/profile', async (ctx) => {
 			OR email = '${ctx.request.body.email}'`
 		);
 
+		let countChanging = 0;
+
 		if (existUser.length === 2) {
 			ctx.body = { message: "This email is already in use" };
 			ctx.status = 409;
 		} else if (existUser.length === 1) {
-			if (ctx.request.body.fullname)
+			if (ctx.request.body.fullname) {
 				existUser[0].fullname = ctx.request.body.fullname;
-			if (ctx.request.body.about)
+				countChanging++;
+			}
+			if (ctx.request.body.about) {
 				existUser[0].about = ctx.request.body.about;
-			if (ctx.request.body.email)
+				countChanging++;
+			}
+			if (ctx.request.body.email) {
 				existUser[0].email = ctx.request.body.email;
+				countChanging++;
+			}
 
-			await t.none(
-				`UPDATE users SET 
-					fullname = '${existUser[0].fullname}', 
-					about = '${existUser[0].about}', 
-					email = '${existUser[0].email}'
-				WHERE nickname = '${ctx.params.nickname}'`
-			);
+			if (countChanging !== 0) {
+				await t.none(
+					`UPDATE users SET 
+						fullname = '${existUser[0].fullname}', 
+						about = '${existUser[0].about}', 
+						email = '${existUser[0].email}'
+					WHERE nickname = '${ctx.params.nickname}'`
+				);
+			}
 
 			ctx.body = existUser[0];
 			ctx.status = 200;
@@ -123,7 +133,7 @@ router.post('/api/forum/create', async (ctx) => {
 		}
 
 		const existUser = await t.oneOrNone(
-			`SELECT * FROM users 
+			`SELECT nickname FROM users 
 			WHERE nickname = '${ctx.request.body.user}'`
 		);
 
@@ -184,7 +194,7 @@ router.post('/api/forum/:slug/create', async (ctx) => {
 		}
 
 		const existUser = await t.oneOrNone(
-			`SELECT nickname FROM users 
+			`SELECT nickname, email, fullname, about FROM users 
 			WHERE nickname = '${ctx.request.body.author}'`
 		);
 		if (!existUser) {
@@ -255,7 +265,10 @@ router.post('/api/forum/:slug/create', async (ctx) => {
 			`INSERT INTO users_in_forum
 			VALUES(
 			'${existForum.slug}', 
-			'${existUser.nickname}') 
+			'${existUser.nickname}',
+			'${existUser.fullname}',
+			'${existUser.email}',
+			'${existUser.about}') 
 			ON CONFLICT ON CONSTRAINT users_in_forum_forum_author_pk DO NOTHING`
 		);
 
@@ -268,14 +281,14 @@ router.post('/api/forum/:slug/create', async (ctx) => {
 router.get('/api/forum/:slug/threads', async (ctx) => {
 	await database.task(async t => {
 		const existForum = await t.oneOrNone(
-			`SELECT * FROM forums 
+			`SELECT slug FROM forums 
 			WHERE slug = '${ctx.params.slug}'`
 		);
 
 		if (existForum) {
 			let limit = "ALL";
 			let desc = "ASC";
-			let since = "1990-03-20T23:07:05.956Z";
+			let since = 0;
 			let sign = ">=";
 
 			if (ctx.query.limit)
@@ -287,13 +300,22 @@ router.get('/api/forum/:slug/threads', async (ctx) => {
 			if (ctx.query.desc === 'true' && ctx.query.since)
 				sign = "<=";
 
-			ctx.body = await t.any(
-				`SELECT * from threads
-				WHERE forum = '${ctx.params.slug}' AND
-				created ${sign} '${since}'
-				ORDER BY created ${desc}
-				LIMIT ${limit}`
-			);
+			if (since === 0) {
+				ctx.body = await t.any(
+					`SELECT * from threads
+					WHERE forum = '${ctx.params.slug}' 
+					ORDER BY created ${desc}
+					LIMIT ${limit}`
+				);
+			} else {
+				ctx.body = await t.any(
+					`SELECT * from threads
+					WHERE forum = '${ctx.params.slug}' AND
+					created ${sign} '${since}'
+					ORDER BY created ${desc}
+					LIMIT ${limit}`
+				);
+			}
 			ctx.status = 200;
 		} else {
 			ctx.body = { message: "Can't find forum" };
@@ -305,15 +327,16 @@ router.get('/api/forum/:slug/threads', async (ctx) => {
 
 router.post('/api/thread/:slugOrId/create', async (ctx) => {
 	await database.task(async t => {
+		let authors = [];
 		let existThread = 0;
 		if (isNaN(ctx.params.slugOrId)) {
 			existThread = await t.oneOrNone(
-				`SELECT * FROM threads 
+				`SELECT id, forum FROM threads 
 				WHERE slug = '${ctx.params.slugOrId}'`
 			);
 		} else {
 			existThread = await t.oneOrNone(
-				`SELECT * FROM threads 
+				`SELECT id, forum FROM threads 
 				WHERE id = '${ctx.params.slugOrId}'`
 			);
 		}
@@ -360,13 +383,27 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 				body[i].parent = 0;
 
 			let author = await t.oneOrNone(
-				`SELECT id FROM users 
+				`SELECT email, fullname, about FROM users 
 				WHERE nickname = '${body[i].author}'`
 			);
 			if (!author) {
 				ctx.body = { message: "Can't find post author" };
 				ctx.status = 404;
 				return;
+			}
+
+			if (authors.indexOf(body[i].author) === -1) {
+				authors.push(body[i].author);
+				await t.none(
+					`INSERT INTO users_in_forum
+					VALUES(
+					'${existThread.forum}', 
+					'${body[i].author}',
+					'${author.fullname}',
+					'${author.email}',
+					'${author.about}') 
+					ON CONFLICT ON CONSTRAINT users_in_forum_forum_author_pk DO NOTHING`
+				);
 			}
 		}
 
@@ -386,14 +423,6 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 			body[i].id = id[i].id;
 			body[i].created = time;
 			if (!ctx.request.body[i].parent) delete body[i].parent;
-
-			await t.none(
-				`INSERT INTO users_in_forum
-				VALUES(
-				'${existThread.forum}', 
-				'${body[i].author}') 
-				ON CONFLICT ON CONSTRAINT users_in_forum_forum_author_pk DO NOTHING`
-			);
 		}
 
 		await t.none(
@@ -402,11 +431,11 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 			WHERE slug = '${existThread.forum}'`
 		);
 
-		postsCount += length;
-		if (postsCount >= 1500000) {
-			await database.none(`CLUSTER posts USING post_path`);
-		}
-		console.log(postsCount);
+		// postsCount += length;
+		// if (postsCount >= 1500000) {
+		// 	await database.none(`CLUSTER posts USING post_path`);
+		// }
+		// console.log(postsCount);
 
 		ctx.body = body;
 		ctx.status = 201;
@@ -417,7 +446,7 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 router.post('/api/thread/:slugOrId/vote', async (ctx) => {
 	await database.task(async t => {
 		let author = await t.oneOrNone(
-			`SELECT id FROM users 
+			`SELECT nickname FROM users 
 			WHERE nickname = '${ctx.request.body.nickname}'`
 		);
 		if (!author) {
@@ -451,9 +480,9 @@ router.post('/api/thread/:slugOrId/vote', async (ctx) => {
 			if (oldVoice) {
 				if (oldVoice.voice !== voice) {
 					await t.none(
-					`UPDATE votes SET voice = ${voice} 
-					WHERE author = '${ctx.request.body.nickname}' AND
-					thread = ${existThread.id}`
+						`UPDATE votes SET voice = ${voice} 
+						WHERE author = '${ctx.request.body.nickname}' AND
+						thread = ${existThread.id}`
 					);
 					await t.none(
 						`UPDATE threads SET votes = votes + ${voice}*2 
@@ -514,12 +543,12 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 		let existThread = 0;
 		if (isNaN(ctx.params.slugOrId)) {
 			existThread = await t.oneOrNone(
-				`SELECT * FROM threads 
+				`SELECT id FROM threads 
 				WHERE slug = '${ctx.params.slugOrId}'`
 			);
 		} else {
 			existThread = await t.oneOrNone(
-				`SELECT * FROM threads 
+				`SELECT id FROM threads 
 				WHERE id = '${ctx.params.slugOrId}'`
 			);
 		}
@@ -544,13 +573,22 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 
 			let body = [];
 			if (!sort || sort === 'flat') {
-				body = await t.any(
-					`SELECT author, created, forum, id, message, thread, parent FROM posts
-					WHERE thread = ${existThread.id} AND
-					id ${sign} ${since}
-					ORDER BY created ${desc}, id ${desc}
-					LIMIT ${limit}`
-				);
+				if (since !== 0) {
+					body = await t.any(
+						`SELECT author, created, forum, id, message, thread, parent FROM posts
+						WHERE thread = ${existThread.id} AND
+						id ${sign} ${since}
+						ORDER BY created ${desc}, id ${desc}
+						LIMIT ${limit}`
+					);
+				} else {
+					body = await t.any(
+						`SELECT author, created, forum, id, message, thread, parent FROM posts
+						WHERE thread = ${existThread.id} 
+						ORDER BY created ${desc}, id ${desc}
+						LIMIT ${limit}`
+					);
+				}
 			} else if (sort === 'tree') {
 				if (since !== 0) {
 					body = await t.any(
@@ -636,18 +674,26 @@ router.post('/api/thread/:slugOrId/details', async (ctx) => {
 			);
 		}
 
-		if (existThread) {
-			if (ctx.request.body.message)
-				existThread.message = ctx.request.body.message;
-			if (ctx.request.body.title)
-				existThread.title = ctx.request.body.title;
+		let countChanging = 0;
 
-			await t.none(
-				`UPDATE threads SET 
-				message = '${existThread.message}', 
-				title = '${existThread.title}' 
-				WHERE id = ${existThread.id}`
-			);
+		if (existThread) {
+			if (ctx.request.body.message) {
+				existThread.message = ctx.request.body.message;
+				countChanging++;
+			}
+			if (ctx.request.body.title) {
+				existThread.title = ctx.request.body.title;
+				countChanging++;
+			}
+
+			if (countChanging !== 0) {
+				await t.none(
+					`UPDATE threads SET 
+					message = '${existThread.message}', 
+					title = '${existThread.title}' 
+					WHERE id = ${existThread.id}`
+				);
+			}
 
 			ctx.body = existThread;
 			ctx.status = 200;
@@ -662,7 +708,7 @@ router.post('/api/thread/:slugOrId/details', async (ctx) => {
 router.get('/api/forum/:slug/users', async (ctx) => {
 	await database.task(async t => {
 		const existForum = await t.oneOrNone(
-			`SELECT * FROM forums 
+			`SELECT slug FROM forums 
 			WHERE slug = '${ctx.params.slug}'`
 		);
 
@@ -684,20 +730,18 @@ router.get('/api/forum/:slug/users', async (ctx) => {
 
 			if (since !== 0) {
 				users = await t.any(
-					`SELECT u.nickname, u.fullname, u.about, u.email
-					FROM users_in_forum uf JOIN users u
-                        ON uf.author = u.nickname
+					`SELECT author AS nickname, fullname, about, email
+					FROM users_in_forum 
 					WHERE forum = '${ctx.params.slug}' 
 					AND author ${sign} '${since}' 
-					ORDER BY u.nickname ${desc} LIMIT ${limit}`
+					ORDER BY author ${desc} LIMIT ${limit}`
 				);
 			} else {
 				users = await t.any(
-					`SELECT u.nickname, u.fullname, u.about, u.email
-					FROM users_in_forum uf JOIN users u
-                        ON uf.author = u.nickname
+					`SELECT author AS nickname, fullname, about, email
+					FROM users_in_forum 
 					WHERE forum = '${ctx.params.slug}' 
-					ORDER BY u.nickname ${desc} LIMIT ${limit}`
+					ORDER BY author ${desc} LIMIT ${limit}`
 				);
 			}
 
@@ -806,10 +850,10 @@ router.post('/api/post/:id/details', async (ctx) => {
 
 router.get('/api/service/status', async (ctx) => {
 	await database.task(async t => {
-		const forumsCount = await t.one(`SELECT COUNT(id) FROM forums`);
+		const forumsCount = await t.one(`SELECT COUNT(slug) FROM forums`);
 		const postsCount = await t.one(`SELECT COUNT(id) FROM posts`);
 		const threadsCount = await t.one(`SELECT COUNT(id) FROM threads`);
-		const usersCount = await t.one(`SELECT COUNT(id) FROM users`);
+		const usersCount = await t.one(`SELECT COUNT(nickname) FROM users`);
 
 		ctx.body = {
 			"forum": +forumsCount.count,

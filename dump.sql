@@ -52,7 +52,6 @@ SET default_with_oids = false;
 --
 
 CREATE TABLE forums (
-    id integer NOT NULL,
     slug citext NOT NULL,
     title character varying NOT NULL,
     author citext NOT NULL,
@@ -62,27 +61,6 @@ CREATE TABLE forums (
 
 
 ALTER TABLE forums OWNER TO andrey;
-
---
--- Name: forums_id_seq; Type: SEQUENCE; Schema: public; Owner: andrey
---
-
-CREATE SEQUENCE forums_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE forums_id_seq OWNER TO andrey;
-
---
--- Name: forums_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: andrey
---
-
-ALTER SEQUENCE forums_id_seq OWNED BY forums.id;
-
 
 --
 -- Name: posts; Type: TABLE; Schema: public; Owner: andrey
@@ -168,7 +146,6 @@ ALTER SEQUENCE threads_id_seq OWNED BY threads.id;
 --
 
 CREATE TABLE users (
-    id integer NOT NULL,
     nickname citext NOT NULL,
     fullname character varying,
     about text,
@@ -179,33 +156,15 @@ CREATE TABLE users (
 ALTER TABLE users OWNER TO andrey;
 
 --
--- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: andrey
---
-
-CREATE SEQUENCE users_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE users_id_seq OWNER TO andrey;
-
---
--- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: andrey
---
-
-ALTER SEQUENCE users_id_seq OWNED BY users.id;
-
-
---
 -- Name: users_in_forum; Type: TABLE; Schema: public; Owner: andrey
 --
 
 CREATE TABLE users_in_forum (
     forum citext NOT NULL,
-    author citext NOT NULL
+    author citext NOT NULL,
+    fullname character varying,
+    email citext,
+    about text
 );
 
 
@@ -228,13 +187,6 @@ ALTER TABLE votes OWNER TO andrey;
 -- Name: id; Type: DEFAULT; Schema: public; Owner: andrey
 --
 
-ALTER TABLE ONLY forums ALTER COLUMN id SET DEFAULT nextval('forums_id_seq'::regclass);
-
-
---
--- Name: id; Type: DEFAULT; Schema: public; Owner: andrey
---
-
 ALTER TABLE ONLY posts ALTER COLUMN id SET DEFAULT nextval('posts_id_seq'::regclass);
 
 
@@ -243,21 +195,6 @@ ALTER TABLE ONLY posts ALTER COLUMN id SET DEFAULT nextval('posts_id_seq'::regcl
 --
 
 ALTER TABLE ONLY threads ALTER COLUMN id SET DEFAULT nextval('threads_id_seq'::regclass);
-
-
---
--- Name: id; Type: DEFAULT; Schema: public; Owner: andrey
---
-
-ALTER TABLE ONLY users ALTER COLUMN id SET DEFAULT nextval('users_id_seq'::regclass);
-
-
---
--- Name: forums_pkey; Type: CONSTRAINT; Schema: public; Owner: andrey
---
-
-ALTER TABLE ONLY forums
-    ADD CONSTRAINT forums_pkey PRIMARY KEY (id);
 
 
 --
@@ -287,18 +224,17 @@ ALTER TABLE ONLY users_in_forum
 
 
 --
--- Name: users_pkey; Type: CONSTRAINT; Schema: public; Owner: andrey
---
-
-ALTER TABLE ONLY users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
 -- Name: author_thread; Type: INDEX; Schema: public; Owner: andrey
 --
 
 CREATE INDEX author_thread ON votes USING btree (author, thread);
+
+
+--
+-- Name: forums_author; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX forums_author ON forums USING btree (author);
 
 
 --
@@ -314,9 +250,7 @@ ALTER TABLE forums CLUSTER ON forums_slug_uindex;
 -- Name: post_path; Type: INDEX; Schema: public; Owner: andrey
 --
 
-CREATE INDEX post_path ON posts USING btree (path);
-
-ALTER TABLE posts CLUSTER ON post_path;
+CREATE INDEX post_path ON posts USING btree ((path[1]));
 
 
 --
@@ -327,10 +261,45 @@ CREATE INDEX post_thread ON posts USING btree (thread);
 
 
 --
--- Name: thread_forum_created; Type: INDEX; Schema: public; Owner: andrey
+-- Name: posts_author; Type: INDEX; Schema: public; Owner: andrey
 --
 
-CREATE INDEX thread_forum_created ON threads USING btree (forum, created);
+CREATE INDEX posts_author ON posts USING btree (author);
+
+
+--
+-- Name: posts_created; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_created ON posts USING btree (created);
+
+
+--
+-- Name: posts_forum; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_forum ON posts USING btree (forum);
+
+
+--
+-- Name: posts_parent; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_parent ON posts USING btree (parent);
+
+
+--
+-- Name: posts_thread_id; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_thread_id ON posts USING btree (thread, id);
+
+
+--
+-- Name: posts_thread_parent; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_thread_parent ON posts USING btree (thread, parent);
 
 
 --
@@ -341,10 +310,31 @@ CREATE INDEX thread_slug ON threads USING btree (slug);
 
 
 --
+-- Name: threads_author; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX threads_author ON threads USING btree (author);
+
+
+--
+-- Name: threads_created; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX threads_created ON threads USING btree (created);
+
+
+--
+-- Name: threads_forum; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX threads_forum ON threads USING btree (forum);
+
+
+--
 -- Name: users_email_uindex; Type: INDEX; Schema: public; Owner: andrey
 --
 
-CREATE UNIQUE INDEX users_email_uindex ON users USING btree (email);
+CREATE INDEX users_email_uindex ON users USING btree (email);
 
 
 --
