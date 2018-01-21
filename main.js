@@ -265,10 +265,7 @@ router.post('/api/forum/:slug/create', async (ctx) => {
 			`INSERT INTO users_in_forum
 			VALUES(
 			'${existForum.slug}', 
-			'${existUser.nickname}',
-			'${existUser.fullname}',
-			'${existUser.email}',
-			'${existUser.about}') 
+			'${existUser.nickname}') 
 			ON CONFLICT ON CONSTRAINT users_in_forum_forum_author_pk DO NOTHING`
 		);
 
@@ -398,10 +395,7 @@ router.post('/api/thread/:slugOrId/create', async (ctx) => {
 					`INSERT INTO users_in_forum
 					VALUES(
 					'${existThread.forum}', 
-					'${body[i].author}',
-					'${author.fullname}',
-					'${author.email}',
-					'${author.about}') 
+					'${body[i].author}') 
 					ON CONFLICT ON CONSTRAINT users_in_forum_forum_author_pk DO NOTHING`
 				);
 			}
@@ -594,7 +588,7 @@ router.get('/api/thread/:slugOrId/posts', async (ctx) => {
 					body = await t.any(
 						`SELECT author, created, forum, id, message, thread, parent FROM posts
 						WHERE thread = ${existThread.id} AND path ${sign} (
-		                    SELECT path FROM posts WHERE id = ${since} LIMIT 1
+		                    SELECT path FROM posts WHERE id = ${since}
 						) ORDER BY path ${desc} LIMIT ${limit}`
 					);
 				} else {
@@ -730,18 +724,20 @@ router.get('/api/forum/:slug/users', async (ctx) => {
 
 			if (since !== 0) {
 				users = await t.any(
-					`SELECT author AS nickname, fullname, about, email
-					FROM users_in_forum 
+					`SELECT u.nickname, u.fullname, u.about, u.email
+					FROM users_in_forum uf JOIN users u
+                        ON uf.author = u.nickname
 					WHERE forum = '${ctx.params.slug}' 
 					AND author ${sign} '${since}' 
-					ORDER BY author ${desc} LIMIT ${limit}`
+					ORDER BY u.nickname ${desc} LIMIT ${limit}`
 				);
 			} else {
 				users = await t.any(
-					`SELECT author AS nickname, fullname, about, email
-					FROM users_in_forum 
+					`SELECT u.nickname, u.fullname, u.about, u.email
+					FROM users_in_forum uf JOIN users u
+                        ON uf.author = u.nickname
 					WHERE forum = '${ctx.params.slug}' 
-					ORDER BY author ${desc} LIMIT ${limit}`
+					ORDER BY u.nickname ${desc} LIMIT ${limit}`
 				);
 			}
 

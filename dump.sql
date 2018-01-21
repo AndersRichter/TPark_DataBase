@@ -161,10 +161,7 @@ ALTER TABLE users OWNER TO andrey;
 
 CREATE TABLE users_in_forum (
     forum citext NOT NULL,
-    author citext NOT NULL,
-    fullname character varying,
-    email citext,
-    about text
+    author citext NOT NULL
 );
 
 
@@ -254,10 +251,10 @@ CREATE INDEX post_path ON posts USING btree ((path[1]));
 
 
 --
--- Name: post_thread; Type: INDEX; Schema: public; Owner: andrey
+-- Name: post_thread_path; Type: INDEX; Schema: public; Owner: andrey
 --
 
-CREATE INDEX post_thread ON posts USING btree (thread);
+CREATE INDEX post_thread_path ON posts USING btree (thread, path);
 
 
 --
@@ -286,6 +283,20 @@ CREATE INDEX posts_forum ON posts USING btree (forum);
 --
 
 CREATE INDEX posts_parent ON posts USING btree (parent);
+
+
+--
+-- Name: posts_thread; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_thread ON posts USING btree (thread);
+
+
+--
+-- Name: posts_thread_created; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX posts_thread_created ON posts USING btree (thread, created);
 
 
 --
@@ -328,6 +339,13 @@ CREATE INDEX threads_created ON threads USING btree (created);
 --
 
 CREATE INDEX threads_forum ON threads USING btree (forum);
+
+
+--
+-- Name: threads_forum_created; Type: INDEX; Schema: public; Owner: andrey
+--
+
+CREATE INDEX threads_forum_created ON threads USING btree (forum, created);
 
 
 --
