@@ -228,13 +228,6 @@ CREATE INDEX author_thread ON votes USING btree (author, thread);
 
 
 --
--- Name: forums_author; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX forums_author ON forums USING btree (author);
-
-
---
 -- Name: forums_slug_uindex; Type: INDEX; Schema: public; Owner: andrey
 --
 
@@ -244,45 +237,10 @@ ALTER TABLE forums CLUSTER ON forums_slug_uindex;
 
 
 --
--- Name: post_path; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX post_path ON posts USING btree ((path[1]));
-
-
---
 -- Name: post_thread_path; Type: INDEX; Schema: public; Owner: andrey
 --
 
 CREATE INDEX post_thread_path ON posts USING btree (thread, path);
-
-
---
--- Name: posts_author; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_author ON posts USING btree (author);
-
-
---
--- Name: posts_created; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_created ON posts USING btree (created);
-
-
---
--- Name: posts_forum; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_forum ON posts USING btree (forum);
-
-
---
--- Name: posts_parent; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_parent ON posts USING btree (parent);
 
 
 --
@@ -300,45 +258,10 @@ CREATE INDEX posts_thread_created ON posts USING btree (thread, created);
 
 
 --
--- Name: posts_thread_id; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_thread_id ON posts USING btree (thread, id);
-
-
---
--- Name: posts_thread_parent; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX posts_thread_parent ON posts USING btree (thread, parent);
-
-
---
 -- Name: thread_slug; Type: INDEX; Schema: public; Owner: andrey
 --
 
 CREATE INDEX thread_slug ON threads USING btree (slug);
-
-
---
--- Name: threads_author; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX threads_author ON threads USING btree (author);
-
-
---
--- Name: threads_created; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX threads_created ON threads USING btree (created);
-
-
---
--- Name: threads_forum; Type: INDEX; Schema: public; Owner: andrey
---
-
-CREATE INDEX threads_forum ON threads USING btree (forum);
 
 
 --
